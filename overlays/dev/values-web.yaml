@@ -1,0 +1,19 @@
+name: web
+version: v1
+
+image:
+  repository: ghcr.io/syed-amjad/web
+  tag: v1
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+env:
+  API_URL: http://api.webapp-dev.svc.cluster.local:8000

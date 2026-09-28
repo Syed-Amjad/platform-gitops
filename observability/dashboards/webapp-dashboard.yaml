@@ -1,0 +1,94 @@
+# Dashboards as code.
+#
+# The Grafana sidecar watches every namespace for ConfigMaps carrying the
+# `grafana_dashboard` label and imports them automatically. A fresh cluster
+# therefore rebuilds every dashboard from git with no manual import step — and
+# a dashboard someone tweaks in the UI is not persisted, which is the point.
+#
+# To update: edit in the Grafana UI, export the JSON (Share → Export → "Export
+# for sharing externally" OFF), and paste it back into the block below.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-webapp
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: "Platform"
+data:
+  webapp.json: |
+    {
+      "title": "webapp — golden signals",
+      "uid": "webapp-golden",
+      "timezone": "utc",
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "templating": {
+        "list": [
+          {
+            "name": "job",
+            "type": "query",
+            "datasource": { "type": "prometheus", "uid": "prometheus" },
+            "query": "label_values(http_requests_total, job)",
+            "current": { "text": "api", "value": "api" }
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Request rate by version",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum by (version) (rate(http_requests_total{job=~\"$job\"}[5m]))",
+              "legendFormat": "{{version}}"
+            }
+          ],
+          "description": "During a canary this panel is the split, visible. 90/10 in the VirtualService shows up here as a 9:1 ratio."
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Error ratio by version",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "percentunit", "max": 1, "min": 0 }
+          },
+          "targets": [
+            {
+              "expr": "webapp:request_error_ratio5m:by_version{job=~\"$job\"}",
+              "legendFormat": "{{version}}"
+            }
+          ],
+          "description": "Reads the recording rule, not the raw division. Comparing v2 against v1 here is how you decide whether to promote."
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Latency p99",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": { "defaults": { "unit": "s" } },
+          "targets": [
+            { "expr": "webapp:latency_p99_5m", "legendFormat": "p99" }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "logs",
+          "title": "Logs — same time range",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            { "expr": "{namespace=\"webapp-prod\"} |= \"\"" }
+          ],
+          "description": "Metrics and logs on one screen, sharing a time range. This panel is the demonstration: an alert hands you a pod name, and the logs for that pod at that instant are already beside the graph."
+        }
+      ]
+    }

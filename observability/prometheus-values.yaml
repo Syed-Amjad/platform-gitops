@@ -1,0 +1,120 @@
+# Values for kube-prometheus-stack.
+#
+# This file is the configuration under version control. The chart itself is a
+# pinned dependency in argocd/applications/01-observability.yaml.
+
+prometheus:
+  prometheusSpec:
+    retention: 15d
+    retentionSize: 8GB
+
+    # ------------------------------------------------------------------------
+    # THE LINE THAT TRIPS EVERYONE.
+    #
+    # Left at its default (true), Prometheus only adopts ServiceMonitors that
+    # carry the Helm release label, in the release namespace. Your application's
+    # ServiceMonitor in webapp-prod is then silently ignored — no error, no
+    # warning, the target simply never appears — and you lose an hour wondering
+    # why the app is not being scraped.
+    # ------------------------------------------------------------------------
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+    resources:
+      requests: { cpu: 200m, memory: 1Gi }
+      limits: { cpu: 1, memory: 2Gi }
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 20Gi
+
+grafana:
+  # No password here. The value comes from the Secret that External Secrets
+  # creates from Vault — see secrets/externalsecret-grafana.yaml.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+
+  sidecar:
+    dashboards:
+      enabled: true
+      # Dashboards as code: any ConfigMap carrying this label, in any namespace,
+      # is picked up automatically. A fresh cluster rebuilds every dashboard
+      # from git with no manual import.
+      label: grafana_dashboard
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      searchNamespace: ALL
+
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki-gateway.logging.svc.cluster.local
+      access: proxy
+      # This is what makes metric → log correlation one click rather than a
+      # copy-paste: Grafana can jump from a Prometheus series to the matching
+      # log stream because both carry the same pod label.
+      jsonData:
+        maxLines: 1000
+
+alertmanager:
+  config:
+    route:
+      group_by: ["alertname", "namespace"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: default
+      routes:
+        - matchers: ["severity = critical"]
+          receiver: critical
+          continue: false
+        - matchers: ["severity = warning"]
+          receiver: default
+
+    receivers:
+      - name: default
+        # Replace with a real webhook or SMTP config before demonstrating.
+        # Alertmanager accepts this and silently drops notifications otherwise,
+        # which is its own small lesson about unverified controls.
+        webhook_configs:
+          - url: "http://alertmanager-webhook-logger.observability.svc:8080/"
+            send_resolved: true
+      - name: critical
+        webhook_configs:
+          - url: "http://alertmanager-webhook-logger.observability.svc:8080/"
+            send_resolved: true
+
+    inhibit_rules:
+      # If a whole node is down, do not also page about every pod that was on
+      # it. Anyone who has been on call recognises why this line exists — one
+      # node failure otherwise produces one alert per pod, at 3 a.m.
+      - source_matchers: ["alertname = NodeDown"]
+        target_matchers: ["severity = warning"]
+        equal: ["node"]
+      # A critical alert for a service suppresses its warning-level twin.
+      - source_matchers: ["severity = critical"]
+        target_matchers: ["severity = warning"]
+        equal: ["alertname", "namespace"]
+
+# k3s does not expose these components the way a kubeadm cluster does, so the
+# chart's default scrape targets for them fail and sit permanently red.
+# Disabling them is honest; leaving them broken trains you to ignore red.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false

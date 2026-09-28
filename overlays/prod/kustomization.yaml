@@ -1,0 +1,67 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: webapp-prod
+
+# ---------------------------------------------------------------------------
+# This file is where the CV claim "Helm / Kustomize" becomes a real mechanism
+# rather than two words next to each other.
+#
+# Kustomize renders the Helm chart three times — once per deployable version —
+# and then patches the rendered output per environment. Helm does packaging and
+# templating; Kustomize does environment differences. Neither tool is being
+# used as a worse version of the other.
+#
+# REQUIRES `--enable-helm`. In ArgoCD that means setting
+#   kustomize.buildOptions: "--enable-helm"
+# in the argocd-cm ConfigMap. Without it `helmCharts:` produces NOTHING, with
+# no error — see scripts/install-argocd.sh, which sets it.
+# ---------------------------------------------------------------------------
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+helmGlobals:
+  chartHome: ../../charts
+
+helmCharts:
+  - name: microservice
+    releaseName: api-v1
+    namespace: webapp-prod
+    valuesFile: values-api-v1.yaml
+
+  - name: microservice
+    releaseName: api-v2
+    namespace: webapp-prod
+    valuesFile: values-api-v2.yaml
+
+  - name: microservice
+    releaseName: web
+    namespace: webapp-prod
+    valuesFile: values-web.yaml
+
+# Environment-specific patches applied on top of the rendered chart.
+# In dev these are absent; that difference is the whole reason overlays exist.
+patches:
+  - target:
+      kind: Deployment
+      name: api-v1
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: add
+        path: /spec/template/spec/topologySpreadConstraints
+        value:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app: api
+
+labels:
+  - includeSelectors: false
+    pairs:
+      environment: prod

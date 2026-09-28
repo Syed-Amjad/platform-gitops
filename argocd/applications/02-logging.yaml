@@ -1,0 +1,69 @@
+# Wave 2 — logs.
+#
+# After metrics, because Grafana is what renders both and it comes up in wave 1.
+# Loki registers itself as a datasource against a Grafana that already exists.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: logging
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: loki
+      targetRevision: 6.16.0
+      helm:
+        releaseName: loki
+        valueFiles:
+          - $values/observability/loki-values.yaml
+    - repoURL: https://github.com/Syed-Amjad/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+
+---
+# Promtail ships every pod's stdout with its Kubernetes labels attached. Those
+# labels are what make a log line joinable to a metric — without them you have
+# a searchable text pile, not an observability stack.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: promtail
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: promtail
+      targetRevision: 6.16.6
+      helm:
+        releaseName: promtail
+        valueFiles:
+          - $values/observability/promtail-values.yaml
+    - repoURL: https://github.com/Syed-Amjad/platform-gitops.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

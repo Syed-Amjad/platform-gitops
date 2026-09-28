@@ -1,0 +1,13 @@
+name: web
+version: v1
+
+image:
+  repository: ghcr.io/syed-amjad/web
+  tag: v1
+
+replicaCount: 2
+
+env:
+  # Points at the version-agnostic Service. web never addresses api-v1 or
+  # api-v2 directly — if it did, Istio would have nothing left to route.
+  API_URL: http://api.webapp-prod.svc.cluster.local:8000

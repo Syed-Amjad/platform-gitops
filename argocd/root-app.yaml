@@ -1,0 +1,27 @@
+# The app-of-apps entry point. Apply this ONCE by hand; everything else follows
+# from git and is never applied manually again.
+#
+#   kubectl apply -f argocd/root-app.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Syed-Amjad/platform-gitops.git
+    targetRevision: main
+    path: argocd/applications
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true # remove what git no longer declares
+      selfHeal: true # revert manual kubectl changes
+    syncOptions:
+      - CreateNamespace=true

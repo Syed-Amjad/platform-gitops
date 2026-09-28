@@ -1,0 +1,14 @@
+# api, stable version.
+#
+# CI does NOT touch this file. v1 is promoted deliberately, by a human editing
+# git — see docs/RUNBOOK-canary.md. Only values-api-v2.yaml moves automatically.
+name: api
+version: v1
+
+image:
+  repository: ghcr.io/syed-amjad/api
+  tag: v1
+
+replicaCount: 2
+
+envFromSecret: webapp-db

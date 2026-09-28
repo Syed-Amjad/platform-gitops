@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  labels:
+    app: api
+    app.kubernetes.io/part-of: webapp
+spec:
+  # NOTE: no `version` in the selector. This Service deliberately spans every
+  # version of api, which is what allows Istio to split traffic between the v1
+  # and v2 subsets behind one stable DNS name.
+  selector:
+    app: api
+  ports:
+    # The port name MUST begin with "http". Istio infers the protocol from it —
+    # a port named "web", or left unnamed, is treated as opaque TCP, and L7
+    # routing rules silently do not apply. This catches everyone once.
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

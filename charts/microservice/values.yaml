@@ -1,0 +1,35 @@
+# Defaults. Every value here is overridden per release by the files in
+# overlays/<env>/values-*.yaml.
+
+name: api
+version: v1
+
+image:
+  repository: ghcr.io/syed-amjad/api
+  tag: v1
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+service:
+  port: 8000
+
+# Passed through to the container. web needs API_URL; api does not.
+env: {}
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 300m
+    memory: 192Mi
+
+# Mounted from the Secret that External Secrets creates from Vault.
+# Set to "" to skip — useful before Vault is seeded.
+envFromSecret: ""
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  path: /metrics

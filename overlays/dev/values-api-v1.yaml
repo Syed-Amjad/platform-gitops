@@ -1,0 +1,21 @@
+name: api
+version: v1
+
+image:
+  repository: ghcr.io/syed-amjad/api
+  tag: v1
+
+# One replica, smaller limits. Dev exists to catch "does it start", not to
+# survive a node loss.
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# No Vault-backed secret in dev — the app runs without it.
+envFromSecret: ""

@@ -1,0 +1,19 @@
+# api, canary version.
+#
+# The CI job in k8s-platform-app rewrites `tag:` below on every push to main.
+# Deployment is therefore automatic; PROMOTION is not — the traffic weights in
+# istio/api-traffic.yaml are still a deliberate git commit.
+#
+# That split is the point of progressive delivery: shipping and releasing are
+# two different decisions.
+name: api
+version: v2
+
+image:
+  repository: ghcr.io/syed-amjad/api
+  tag: v2
+
+# Fewer replicas than v1 — it is receiving 10% of traffic.
+replicaCount: 1
+
+envFromSecret: webapp-db

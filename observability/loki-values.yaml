@@ -1,0 +1,53 @@
+# Loki, single-binary mode. Correct for a lab; in production you would run the
+# read/write/backend split against object storage.
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  limits_config:
+    retention_period: 168h # 7 days
+    ingestion_rate_mb: 8
+    ingestion_burst_size_mb: 16
+    reject_old_samples: true
+    reject_old_samples_max_age: 168h
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 20Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 1Gi }
+
+# Explicitly zeroed. The chart defaults to the distributed topology, and
+# leaving these at their defaults on an 8 GB node is how you discover that
+# Loki alone has scheduled six pods you did not ask for.
+read: { replicas: 0 }
+write: { replicas: 0 }
+backend: { replicas: 0 }
+
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+
+lokiCanary:
+  enabled: false
+
+test:
+  enabled: false
