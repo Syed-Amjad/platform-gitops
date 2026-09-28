@@ -1,0 +1,26 @@
+config:
+  clients:
+    - url: http://loki-gateway.logging.svc.cluster.local/loki/api/v1/push
+
+  snippets:
+    pipelineStages:
+      - cri: {}
+      # Parse the app's structured output so LogQL can filter on fields rather
+      # than substrings. `| json | status_code >= 500` only works if this runs.
+      - json:
+          expressions:
+            level: level
+            message: message
+            status_code: status_code
+      - labels:
+          level:
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 200m, memory: 128Mi }
+
+# DaemonSet — one per node, reading every container's stdout from the node's
+# log directory. That is why it needs no application changes to work.
+tolerations:
+  - effect: NoSchedule
+    operator: Exists

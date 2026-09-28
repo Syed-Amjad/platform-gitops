@@ -1,0 +1,27 @@
+# Nothing secret should ever be here — that is the entire point of the
+# secrets/ layer. These patterns exist so an accident is caught by git rather
+# than by a stranger.
+*.env
+.env
+.env.*
+*-secret.yaml
+secret-*.yaml
+vault-token
+*.pem
+*.key
+kubeconfig
+.kube/
+
+# Helm
+charts/**/charts/
+*.tgz
+
+# Kustomize build output — generated, never committed
+rendered/
+*.rendered.yaml
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

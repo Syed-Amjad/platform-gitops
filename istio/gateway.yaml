@@ -1,0 +1,50 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: web-gateway
+  namespace: webapp-prod
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http
+        protocol: HTTP
+      hosts: ["*"]
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: web-ingress
+  namespace: webapp-prod
+spec:
+  hosts: ["*"]
+  gateways: ["web-gateway"]
+  http:
+    - route:
+        - destination:
+            host: web.webapp-prod.svc.cluster.local
+            port:
+              number: 8000
+
+---
+# STRICT mTLS across the namespace.
+#
+# Every pod-to-pod call inside webapp-prod is now mutually authenticated with
+# workload certificates that Istio issues and rotates. This is identity-based
+# access control between services — the same shift as moving from IP allowlists
+# to workload identity, and it costs one manifest.
+#
+# Apply this AFTER the sidecars are injected and running. Turning on STRICT
+# while some pods have no proxy breaks them instantly, because a plaintext
+# caller can no longer be accepted.
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: webapp-prod
+spec:
+  mtls:
+    mode: STRICT

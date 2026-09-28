@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Platform workloads — restricted scope
+
+  # ---------------------------------------------------------------------------
+  # An AppProject is what makes GitOps AUDITABLE rather than merely automated.
+  # It constrains which repository may deploy which kinds of resource into which
+  # namespaces. Without one, anyone with write access to any connected repo can
+  # create a ClusterRoleBinding and own the cluster.
+  # ---------------------------------------------------------------------------
+
+  sourceRepos:
+    - https://github.com/Syed-Amjad/platform-gitops.git # this repo, and only this repo
+
+  destinations:
+    - namespace: "webapp-*"
+      server: https://kubernetes.default.svc
+    - namespace: observability
+      server: https://kubernetes.default.svc
+    - namespace: logging
+      server: https://kubernetes.default.svc
+    # Required by the root app-of-apps: the child Application objects it creates
+    # live here. Omit this and the root Application is refused with
+    # "application destination is not permitted in project" — a confusing first
+    # failure, because the error names the project, not the namespace.
+    - namespace: argocd
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    # ClusterSecretStore is CLUSTER-scoped. Without it here, secrets/ fails to
+    # sync even though its namespace is permitted above — namespace permission
+    # and cluster-resource permission are two separate gates.
+    - group: "external-secrets.io"
+      kind: ClusterSecretStore
+
+  # Explicitly denied even inside permitted namespaces. Privilege escalation via
+  # a committed manifest is the GitOps-specific attack, and this is the control.
+  namespaceResourceBlacklist:
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+
+  roles:
+    - name: read-only
+      description: View applications without the ability to sync or delete
+      policies:
+        - p, proj:platform:read-only, applications, get, platform/*, allow

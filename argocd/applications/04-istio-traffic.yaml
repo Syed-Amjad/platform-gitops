@@ -1,0 +1,32 @@
+# Wave 4 — traffic policy, after the workloads exist.
+#
+# A DestinationRule whose subsets match no pods is accepted without complaint
+# and routes nothing. Applying this after wave 3 means the subsets have
+# something to select the moment they are created.
+#
+# This is also the Application you edit to run a release: the weights in
+# istio/api-traffic.yaml are the canary dial, and changing them in git IS the
+# deployment.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-traffic
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Syed-Amjad/platform-gitops.git
+    targetRevision: main
+    path: istio
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: webapp-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

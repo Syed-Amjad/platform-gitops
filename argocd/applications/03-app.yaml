@@ -1,0 +1,40 @@
+# Wave 3 — the application.
+#
+# Last, because it depends on everything above: the Secret from wave 0, the
+# ServiceMonitor CRD from wave 1, and Promtail from wave 2 to pick up its logs.
+#
+# Points at the Kustomize overlay, not the chart. Kustomize renders the Helm
+# chart three times (api-v1, api-v2, web) and patches the output per
+# environment — see overlays/prod/kustomization.yaml.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: webapp
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Syed-Amjad/platform-gitops.git
+    targetRevision: main
+    path: overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: webapp-prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+  ignoreDifferences:
+    # Istio mutates the pod spec at admission to inject the sidecar. ArgoCD did
+    # not write those containers, so without this the app sits permanently
+    # OutOfSync and selfHeal fights the mesh in a loop.
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.spec.containers[] | select(.name == "istio-proxy")
+        - .spec.template.spec.initContainers[] | select(.name == "istio-init")

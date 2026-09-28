@@ -1,0 +1,19 @@
+# State contains every attribute of every resource, including values you would
+# not paste into a public repo. It is also the only record of what exists, so it
+# is backed up locally rather than committed.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Provider binaries and the lock's local cache
+.terraform/
+
+# Real variable values. terraform.tfvars.example is committed; this is not.
+terraform.tfvars
+*.auto.tfvars
+
+# Plan files can contain secrets in cleartext
+*.tfplan
+
+crash.log
+crash.*.log

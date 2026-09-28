@@ -1,0 +1,29 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Values.name }}-{{ .Values.version }}
+  labels:
+    # kube-prometheus-stack only adopts ServiceMonitors carrying its release
+    # label — UNLESS serviceMonitorSelectorNilUsesHelmValues is false, which
+    # observability/prometheus-values.yaml sets. Both are here so this works
+    # either way.
+    release: kube-prometheus-stack
+    app.kubernetes.io/part-of: webapp
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  endpoints:
+    - port: http
+      path: {{ .Values.serviceMonitor.path }}
+      interval: {{ .Values.serviceMonitor.interval }}
+      # Without this, every scraped series is labelled with the POD ip and the
+      # `version` label never reaches Prometheus — so you cannot break the SLO
+      # down per canary version, which is the entire point of scraping it.
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_version]
+          targetLabel: version
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+{{- end }}

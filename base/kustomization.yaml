@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Version-agnostic objects only. Anything that exists once per version is
+# rendered from the Helm chart by the environment overlays instead.
+#
+# The Namespace is NOT here. Each overlay supplies its own, because patching a
+# Namespace object's *name* from a base is order-dependent in Kustomize — the
+# `namespace:` transformer and a JSON-patch rename interact differently across
+# versions, and the failure is silent. One file per environment is clearer and
+# cannot break.
+resources:
+  - service-api.yaml
+  - service-web.yaml

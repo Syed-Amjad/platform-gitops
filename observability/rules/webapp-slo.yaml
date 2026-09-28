@@ -1,0 +1,114 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: webapp-slo
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    # ------------------------------------------------------------------------
+    # Recording rules. Evaluated once every 30s and stored, so the alerts below
+    # and every Grafana panel read a single pre-computed series instead of
+    # re-running the same expensive division on each query.
+    #
+    # The `job` label comes from the Service name via the ServiceMonitor, so it
+    # is "api" or "web" here — not "webapp". Getting this wrong is the classic
+    # way to end up with alerts that can never fire.
+    # ------------------------------------------------------------------------
+    - name: webapp.recording
+      interval: 30s
+      rules:
+        - record: webapp:request_error_ratio5m
+          expr: |
+            sum(rate(http_requests_total{job=~"api|web",code=~"5.."}[5m]))
+              /
+            clamp_min(sum(rate(http_requests_total{job=~"api|web"}[5m])), 1e-9)
+
+        # Broken down per version, so you can compare the canary against stable
+        # rather than watching one blended number that hides a bad v2.
+        - record: webapp:request_error_ratio5m:by_version
+          expr: |
+            sum by (job, version) (rate(http_requests_total{job=~"api|web",code=~"5.."}[5m]))
+              /
+            clamp_min(sum by (job, version) (rate(http_requests_total{job=~"api|web"}[5m])), 1e-9)
+
+        - record: webapp:latency_p99_5m
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le) (rate(http_request_duration_seconds_bucket{job=~"api|web"}[5m])))
+
+    - name: webapp.alerts
+      rules:
+        # Symptom-based: alert on what a user experiences, not on CPU. Nobody
+        # has ever been paged usefully by "CPU is at 80%".
+        - alert: WebappErrorBudgetBurn
+          expr: webapp:request_error_ratio5m > 0.01
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "webapp 5xx ratio above 1% for 10 minutes"
+            description: "Current ratio {{ $value | humanizePercentage }}."
+            runbook_url: "https://github.com/Syed-Amjad/platform-gitops/blob/main/docs/RUNBOOK-canary.md"
+
+        # Fires when the CANARY is worse than stable — the alert that makes
+        # progressive delivery safe rather than merely gradual.
+        - alert: CanaryErrorRateHigh
+          expr: |
+            webapp:request_error_ratio5m:by_version{version="v2"} > 0.05
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Canary {{ $labels.job }} v2 error ratio above 5%"
+            description: "Roll back by reverting the weights in istio/api-traffic.yaml."
+
+        - alert: WebappLatencyHigh
+          expr: webapp:latency_p99_5m > 1.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "webapp p99 latency above 1.5s"
+
+        - alert: WebappPodCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace=~"webapp-.*"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod {{ $labels.pod }} restarting repeatedly"
+
+        # --------------------------------------------------------------------
+        # The alert almost nobody writes, and the one worth pointing at in an
+        # interview.
+        #
+        # Every alerting setup catches the service being broken. Very few catch
+        # the MONITORING being broken — and a monitoring system that has
+        # silently stopped observing something reports all-clear forever.
+        #
+        # Same failure class as a backup integrity check that passes without
+        # running: green while verifying nothing.
+        # --------------------------------------------------------------------
+        - alert: WebappTargetMissing
+          expr: up{job=~"api|web"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Prometheus can no longer scrape {{ $labels.job }}"
+            description: "The target is down or the ServiceMonitor stopped matching."
+
+        # And the same idea one level up: no targets at all, rather than a
+        # target reporting down. A deleted ServiceMonitor makes `up` vanish
+        # entirely, so the alert above cannot fire either.
+        - alert: WebappNoTargetsDiscovered
+          expr: absent(up{job=~"api|web"}) == 1
+          for: 10m
+          labels:
+            severity: critical
+          annotations:
+            summary: "No webapp scrape targets exist at all"
+            description: "The ServiceMonitor is missing, mislabelled, or its selector matches nothing."

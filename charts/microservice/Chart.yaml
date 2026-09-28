@@ -1,0 +1,13 @@
+apiVersion: v2
+name: microservice
+description: One deployable version of a demo microservice, plus its ServiceMonitor.
+type: application
+version: 0.1.0
+appVersion: "1.0"
+
+# Deliberately does NOT template a Service.
+#
+# The Service spans every version — that is what lets Istio split traffic
+# between v1 and v2 behind a single stable name. If each version's release
+# owned a Service, two releases would fight over the same object.
+# Services live in base/ as plain manifests instead.

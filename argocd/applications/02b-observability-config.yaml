@@ -1,0 +1,29 @@
+# Wave 2 — alerting rules and dashboards.
+#
+# Separate from the chart Application on purpose, and one wave later, because
+# PrometheusRule is a CUSTOM RESOURCE. Its CRD arrives with the chart in wave 1;
+# applying a PrometheusRule before that CRD exists fails with
+# "no matches for kind PrometheusRule", which reads like a typo and is not.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  project: platform
+  source:
+    repoURL: https://github.com/Syed-Amjad/platform-gitops.git
+    targetRevision: main
+    path: observability
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

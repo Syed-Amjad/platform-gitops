@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webapp-dev
+  labels:
+    # Istio injects a sidecar into every pod in a namespace carrying this label.
+    # Without it the mesh has no proxies here, and every VirtualService and
+    # DestinationRule you write is accepted and does absolutely nothing.
+    istio-injection: enabled
+    app.kubernetes.io/part-of: webapp
