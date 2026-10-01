@@ -111,6 +111,28 @@ of these would have presented on the box as something other than what it was.
 | 3 | **ESO 2.x serves only `v1`.** The three manifests in `secrets/` declared `external-secrets.io/v1beta1`, correct for 0.9.x–0.13.x. The script installed the chart *unpinned*, so it resolved to 2.11.0. | Wave 0 fails with `no matches for kind ClusterSecretStore` — which reads like a typo in a file that is actually correct for the version it was written against. | Manifests moved to `v1`; ESO pinned to `2.11.0` and Vault to `0.34.1`. Field names are identical between versions, so this was an `apiVersion` bump and nothing else. |
 | 4 | **`values-api-v1.yaml` pins `tag: v1`, which CI never publishes.** CI builds SHA tags only — deliberately, never `:latest` — and rewrites only `values-api-v2.yaml` and `values-web.yaml`. Nothing ever creates `ghcr.io/syed-amjad/api:v1`. | Wave 3 comes up with `api-v2` and `web` Running and `api-v1` in `ImagePullBackOff`. One of three deployments failing looks like a flake, not a design gap. | On a fresh platform, v1 and v2 start from the same commit: after the first green CI run, copy that SHA into `values-api-v1.yaml` and commit. That commit *is* the deliberate human promotion the design calls for — see `RUNBOOK-canary.md` step 5. |
 
+### Found by running CI — 2026-09-28
+
+| # | Defect | How it presented | Fix |
+|---|---|---|---|
+| 5 | **`build.yml` had no `docker/setup-buildx-action` step but used `cache-to: type=gha`.** Without it, `build-push-action` falls back to Docker's default builder, which runs the `docker` driver — and that driver cannot export a build cache. | Both matrix legs (`api` and `web`) failed at *Build and push* in under 12 seconds. GitHub's annotation truncated the error to `buildx failed with: Learn more at https://docs.docker.com/go/build-cache-backends/`, which points at caching docs and reads like a cache problem. The real message is `Cache export is not supported for the docker driver`. | Added `- uses: docker/setup-buildx-action@v3` before the login step, which creates a `docker-container` driver builder. |
+
+| 6 | **`build.yml` interpolated `github.repository_owner` straight into the image tag.** That returns the owner's real capitalisation, `Syed-Amjad`, and Docker repository names must be lowercase. | Revealed only once defect #5 was fixed — the build got far enough to validate the tag, then failed with `invalid tag "ghcr.io/Syed-Amjad/api:<sha>": repository name must be lowercase`. | A step computing `${GITHUB_REPOSITORY_OWNER,,}` into an output, used in the tag. GitHub Actions expressions have no lowercase function, so it is done in bash. |
+
+**Defect 6 corrects something this repo asserted.** The trap list states that
+"GHCR lowercases the owner". It does not — **buildx refuses the tag outright**
+rather than silently normalising it. The distinction matters: a silent
+lowercase would be harmless, whereas a refusal fails the build. And had it
+silently lowercased while the values files said something else, the mismatch
+would have surfaced far later as an `ImagePullBackOff` at wave 3, where the
+cause is much harder to see. The loud failure is the better outcome.
+
+**The useful diagnostic was that both legs failed identically, in seconds.** A
+genuine build error would differ between two services with different
+dependencies, and would take longer than the time needed to pull a base image.
+Identical fast failures across a matrix mean configuration, not code — that is
+worth more as a habit than the specific fix is.
+
 **One documented behaviour has also changed.** This repo warns three times that
 `kustomize build` without `--enable-helm` "produces no output and reports no
 error". On kustomize **v5.7.1** (bundled with kubectl v1.34.1) that is no longer
