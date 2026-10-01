@@ -3,7 +3,7 @@ version: v1
 
 image:
   repository: ghcr.io/syed-amjad/web
-  tag: v1
+  tag: f60caf6c1e0608b1635e3c30d0e313166f28ee3d
 
 replicaCount: 2
 
