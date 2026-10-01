@@ -22,7 +22,13 @@ resource "aws_security_group" "node" {
 
 resource "aws_vpc_security_group_ingress_rule" "ssh" {
   security_group_id = aws_security_group.node.id
-  description       = "SSH from the operator's address only"
+
+  # No apostrophe. AWS restricts rule descriptions to
+  #   a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*
+  # and rejects anything else with InvalidParameterValue. This read
+  # "the operator's address" and failed AFTER the instance had been created —
+  # leaving a running, billing box with no way to SSH into it.
+  description = "SSH from the operator address only"
   cidr_ipv4         = local.ssh_cidr
   ip_protocol       = "tcp"
   from_port         = 22
