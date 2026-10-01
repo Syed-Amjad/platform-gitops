@@ -11,7 +11,7 @@ version: v2
 
 image:
   repository: ghcr.io/syed-amjad/api
-  tag: v2
+  tag: f60caf6c1e0608b1635e3c30d0e313166f28ee3d
 
 # Fewer replicas than v1 — it is receiving 10% of traffic.
 replicaCount: 1
