@@ -119,6 +119,61 @@ of these would have presented on the box as something other than what it was.
 
 | 6 | **`build.yml` interpolated `github.repository_owner` straight into the image tag.** That returns the owner's real capitalisation, `Syed-Amjad`, and Docker repository names must be lowercase. | Revealed only once defect #5 was fixed — the build got far enough to validate the tag, then failed with `invalid tag "ghcr.io/Syed-Amjad/api:<sha>": repository name must be lowercase`. | A step computing `${GITHUB_REPOSITORY_OWNER,,}` into an output, used in the tag. GitHub Actions expressions have no lowercase function, so it is done in bash. |
 
+### Found by running terraform — 2026-10-01
+
+| # | Defect | How it presented | Fix |
+|---|---|---|---|
+| 7 | **An apostrophe in a security group rule description.** AWS restricts these to `a-zA-Z0-9. _-:/()#,@[]+=&;{}!$*`. The rule read `"SSH from the operator's address only"`. | `terraform apply` created 8 of 9 resources — **including the EC2 instance** — then failed on the ingress rule with `InvalidParameterValue: Invalid rule description`. | Apostrophe removed. The re-apply was `1 to add, 0 to change, 0 to destroy`. |
+
+### Found by running the bootstrap scripts — 2026-10-01
+
+| # | Defect | How it presented | Fix |
+|---|---|---|---|
+| 8 | **`helm repo update -q`.** Helm v3.22.0 has no `-q` flag. | `Error: unknown shorthand flag: 'q' in -q`, immediately after the first repo was added. Under `set -euo pipefail` that aborted the script, so **Vault was never installed** — and the failure surfaced one script later as `vault-seed.sh` reporting `namespaces "vault" not found`. | Dropped `-q` from both `helm repo update` calls. |
+| 9 | **ArgoCD installed with client-side apply.** The `applicationsets.argoproj.io` CRD is larger than the 262144-byte ceiling on the `last-applied-configuration` annotation that client-side apply writes. | `The CustomResourceDefinition "applicationsets.argoproj.io" is invalid: metadata.annotations: Too long`. | `kubectl apply --server-side --force-conflicts`. Server-side apply tracks ownership in `managedFields`, which has no such limit. |
+
+**Defect 9 is the one with teeth, and not for the reason it appears.** The CRD
+error is cosmetic on its own — ArgoCD runs without ApplicationSet. But the
+failure aborted `install-argocd.sh` under `set -euo pipefail` **before** this,
+further down the same script:
+
+```bash
+kubectl -n argocd patch configmap argocd-cm --type merge \
+  -p '{"data":{"kustomize.buildOptions":"--enable-helm"}}'
+```
+
+That is the flag this repo warns about three separate times — the one that makes
+ArgoCD sync "successfully" while deploying nothing but the Services from
+`base/`. So an oversized annotation on an unrelated CRD would have surfaced
+later as *the* signature failure of this project, with nothing connecting the
+two. **`set -e` turns a cosmetic error into a silent omission further down the
+file**, and that is worth more as a lesson than either fix.
+
+The repo already knew about this failure mode: `01-observability.yaml` sets
+`ServerSideApply=true` on the kube-prometheus-stack Application for exactly the
+same reason. It simply had not been applied to ArgoCD's own installation.
+
+### Found by running terraform — the partial apply
+
+**This is the most instructive failure in the infrastructure layer, and not
+because of the apostrophe.** Terraform creates resources in dependency order, and the
+instance does not depend on the ingress rule — so it was created first. The
+apply then failed. The result was a **running, billing `t3.xlarge` with no
+open SSH port**: the one state where you are paying full price for a machine you
+cannot reach, reached by a validation error about punctuation.
+
+Two things that would have caught it earlier, neither of which `terraform plan`
+does:
+
+- `plan` does not validate string *contents* against service-side rules. It
+  reported `9 to add, 0 to destroy` and was completely happy. **A clean plan is
+  not a promise that apply will succeed** — it is a promise about intent, not
+  about what the API will accept.
+- A partial apply is a normal outcome, not a corrupt one. The state file was
+  correct throughout, which is why the fix was a one-line edit and a re-apply
+  rather than a teardown. That is the argument for IaC in a sentence: the same
+  failure click-opsed leaves you reconciling a console by hand.
+
 **Defect 6 corrects something this repo asserted.** The trap list states that
 "GHCR lowercases the owner". It does not — **buildx refuses the tag outright**
 rather than silently normalising it. The distinction matters: a silent

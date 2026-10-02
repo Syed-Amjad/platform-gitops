@@ -9,7 +9,29 @@ log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
 log "Installing ArgoCD"
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -n argocd -f \
+
+# ---------------------------------------------------------------------------
+# --server-side IS REQUIRED, and the reason is the same one that forces
+# ServerSideApply=true on the kube-prometheus-stack Application in
+# argocd/applications/01-observability.yaml.
+#
+# Client-side apply records the entire manifest in the
+# kubectl.kubernetes.io/last-applied-configuration annotation. ArgoCD's
+# ApplicationSet CRD is larger than the 262144-byte ceiling for annotations, so
+# a plain `kubectl apply` fails with:
+#
+#   The CustomResourceDefinition "applicationsets.argoproj.io" is invalid:
+#   metadata.annotations: Too long: may not be more than 262144 bytes
+#
+# Server-side apply keeps field ownership in managedFields instead, with no such
+# limit. --force-conflicts lets this reconcile a namespace where an earlier
+# client-side apply already claimed some fields.
+#
+# This matters more than it looks: the failure aborts the script under
+# `set -euo pipefail` BEFORE the kustomize --enable-helm patch below, which is
+# the single most confusing misconfiguration in this whole repo.
+# ---------------------------------------------------------------------------
+kubectl apply -n argocd --server-side --force-conflicts -f \
   https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 log "Waiting for ArgoCD to come up"

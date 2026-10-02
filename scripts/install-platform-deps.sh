@@ -26,6 +26,13 @@ log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 ESO_CHART_VERSION="${ESO_CHART_VERSION:-2.11.0}"
 VAULT_CHART_VERSION="${VAULT_CHART_VERSION:-0.34.1}"
 
+# NOTE: `helm repo update` is NOT passed -q. Helm v3.22.0 has no such flag and
+# exits with "unknown shorthand flag: 'q' in -q". Because this script runs under
+# `set -euo pipefail`, that one character aborted the whole thing immediately
+# after the first repo was added — so Vault was never installed, and the NEXT
+# script failed with `namespaces "vault" not found`. The reported error was two
+# steps downstream of the actual cause.
+
 log "Installing Vault (DEV MODE — lab only)"
 # ---------------------------------------------------------------------------
 # Dev mode runs UNSEALED, IN-MEMORY, with a root token, and loses everything on
@@ -37,7 +44,7 @@ log "Installing Vault (DEV MODE — lab only)"
 # honest version costs you nothing.
 # ---------------------------------------------------------------------------
 helm repo add hashicorp https://helm.releases.hashicorp.com --force-update
-helm repo update -q
+helm repo update
 helm upgrade --install vault hashicorp/vault \
   --namespace vault --create-namespace \
   --version "$VAULT_CHART_VERSION" \
@@ -59,7 +66,7 @@ log "Installing External Secrets Operator"
 # minutes anyway, because the error blames the repository rather than the move.
 # ---------------------------------------------------------------------------
 helm repo add external-secrets https://external-secrets.io --force-update
-helm repo update -q
+helm repo update
 helm upgrade --install external-secrets external-secrets/external-secrets \
   --namespace external-secrets --create-namespace \
   --version "$ESO_CHART_VERSION" \
