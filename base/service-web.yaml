@@ -13,3 +13,9 @@ spec:
       port: 8000
       targetPort: http
       protocol: TCP
+    # The Istio sidecar's merged metrics port — see service-api.yaml for why
+    # this exists and why it is not named `http-*`.
+    - name: tcp-metrics
+      port: 15020
+      targetPort: 15020
+      protocol: TCP

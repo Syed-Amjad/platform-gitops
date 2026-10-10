@@ -19,3 +19,25 @@ spec:
       port: 8000
       targetPort: http
       protocol: TCP
+    # ------------------------------------------------------------------------
+    # The metrics port, and the only way to scrape this app under STRICT mTLS.
+    #
+    # 15020 is the Istio sidecar's telemetry port, serving the application's
+    # own metrics merged with Envoy's, and Istio keeps it outside mTLS so that
+    # monitoring survives. It is NOT a declared containerPort, which is why
+    # neither a ServiceMonitor `targetPort` nor a PodMonitor `targetPort` can
+    # select it — both compile down to a relabel that keeps only DECLARED
+    # ports, so they silently yield zero targets.
+    #
+    # A Service has no such restriction: it will forward to any port number on
+    # the pod. Declaring it here gives the ServiceMonitor a named Service port
+    # to attach to, which is the one form of discovery that works.
+    #
+    # NOT named `http-*` on purpose. Istio infers L7 protocol from the port
+    # name, and this carries Prometheus exposition format, not application
+    # HTTP that should be routed, retried or split by the VirtualService.
+    # ------------------------------------------------------------------------
+    - name: tcp-metrics
+      port: 15020
+      targetPort: 15020
+      protocol: TCP

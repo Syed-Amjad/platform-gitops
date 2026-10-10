@@ -1,49 +1,46 @@
 {{- if .Values.serviceMonitor.enabled }}
 # ---------------------------------------------------------------------------
-# A PodMonitor, not a ServiceMonitor — and the filename is kept only so the
-# diff stays readable.
+# Scrapes the Istio sidecar's MERGED metrics port, not the application port.
 #
 # THE PROBLEM
-# istio/gateway.yaml sets PeerAuthentication STRICT for this namespace. The
-# sidecar therefore resets any plain-HTTP connection to the pod, and every
-# Prometheus target sat permanently DOWN with
+# istio/gateway.yaml sets PeerAuthentication STRICT for this namespace, so the
+# sidecar resets any plain-HTTP connection to the pod. Every target sat
+# permanently DOWN with
 #   Get "http://10.42.0.51:8000/metrics": read: connection reset by peer
-# while /metrics answered 200 from inside the pod. Nothing was broken; the mesh
-# was enforcing exactly what it had been told to enforce.
+# while /metrics answered 200 from inside the pod. Nothing was broken — the
+# mesh was enforcing precisely what it had been told to enforce.
 #
 # WHY NOT JUST RELAX mTLS
-# Dropping PeerAuthentication to PERMISSIVE, or exempting port 8000, would work
-# and would quietly discard the control. Port 8000 carries application traffic
-# as well as /metrics, so exempting it exempts everything.
+# Dropping PeerAuthentication to PERMISSIVE would fix it and quietly discard
+# the control. Port 8000 carries application traffic as well as /metrics, so
+# exempting that port exempts everything.
 #
 # THE FIX
-# Istio's sidecar scrapes the application itself and republishes those metrics
-# merged with Envoy's own on port 15020, which Istio deliberately leaves
-# outside mTLS so that monitoring survives STRICT. The prometheus.io/*
-# annotations on the pod template tell it which endpoint to merge; Istio then
-# rewrites those same annotations to point at 15020, which is how you can tell
-# it took effect.
+# Istio's sidecar scrapes the app itself and republishes those series merged
+# with Envoy's on port 15020, which Istio deliberately leaves outside mTLS so
+# monitoring keeps working. The prometheus.io/* annotations on the pod template
+# tell it which endpoint to merge; Istio rewrites those same annotations to
+# point at 15020, which is how you can confirm it took effect.
 #
-# WHY A PodMonitor
-# A ServiceMonitor discovers through the Service's Endpoints, so its
-# `targetPort` can only select a port the SERVICE exposes. This Service
-# deliberately exposes only 8000, so `targetPort: 15020` matched nothing and
-# the targets disappeared from Prometheus entirely rather than merely failing.
-# A PodMonitor discovers pods directly and rewrites __address__, so it can
-# reach a port that is listening but undeclared — which 15020 is. (15090 IS
-# declared, as http-envoy-prom, but serves Envoy metrics only, without the
-# application's.)
+# WHY THIS SELECTS A SERVICE PORT AND NOT A targetPort
+# 15020 listens but is not a declared containerPort. Both ServiceMonitor
+# `targetPort` and PodMonitor `targetPort` compile down to a relabel that KEEPS
+# only declared container ports, so both produced zero targets — and the jobs
+# disappeared from Prometheus entirely rather than appearing as failures, which
+# is the worse symptom. A Service can forward to any pod port, declared or not,
+# so base/service-*.yaml publishes 15020 as `tcp-metrics` and this attaches to
+# that name.
 #
-# Net result: STRICT mTLS kept, http_requests_total scraped, and
-# istio_requests_total arrives as a bonus.
+# Net result: STRICT mTLS kept, http_requests_total scraped with its service,
+# version, path and code labels intact, and istio_requests_total for free.
 # ---------------------------------------------------------------------------
 apiVersion: monitoring.coreos.com/v1
-kind: PodMonitor
+kind: ServiceMonitor
 metadata:
   name: {{ .Values.name }}-{{ .Values.version }}
   labels:
     # kube-prometheus-stack only adopts monitors carrying its release label —
-    # UNLESS podMonitorSelectorNilUsesHelmValues is false, which
+    # UNLESS serviceMonitorSelectorNilUsesHelmValues is false, which
     # observability/prometheus-values.yaml sets. Both are here so this works
     # either way.
     release: kube-prometheus-stack
@@ -52,8 +49,8 @@ spec:
   selector:
     matchLabels:
       app: {{ .Values.name }}
-  podMetricsEndpoints:
-    - targetPort: 15020
+  endpoints:
+    - port: tcp-metrics
       path: /stats/prometheus
       interval: {{ .Values.serviceMonitor.interval }}
       # Without these, every scraped series is labelled with the POD ip and the
