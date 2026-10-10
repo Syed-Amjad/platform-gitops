@@ -225,6 +225,21 @@ behaviour. That is an application change — a second `uvicorn` listener — and
 is the right follow-up. Worth stating rather than implying the chosen fix is
 the ideal one.
 
+### Found while collecting screenshots — 2026-10-10
+
+| # | Defect | How it presented | Fix |
+|---|---|---|---|
+| 15 | **Kiali was pointed at a Prometheus that does not exist.** `bootstrap-cluster.sh` installs Kiali from Istio's sample addons, which default to `prometheus.istio-system:9090` — Istio's own bundled Prometheus. This project never installs that; observability is kube-prometheus-stack in the `observability` namespace. | Kiali pod `1/1 Running`, UI loads, every menu works, and the Traffic Graph renders only *"Metrics are disabled — Graph requires a metrics store (Prometheus) to be enabled."* `kubectl -n istio-system get svc prometheus` → `NotFound`. | Patched the Kiali ConfigMap's `external_services.prometheus.url` to the kube-prometheus-stack service and restarted. Log then read `Prometheus connected -- metrics features restored`. Now done by `bootstrap-cluster.sh`. |
+
+**Two components, each correctly configured, never introduced to each other.**
+Nothing was broken: Istio's addon assumed its own stack, this project supplied
+a different one, and neither side had any way to notice. The failure surfaces
+only in a UI panel, not in any pod status, log or ArgoCD health check — so
+every automated signal said the platform was fine.
+
+That is the general shape of the Kiali/Grafana/Prometheus class of problem, and
+why "all pods Running" is a weak definition of working.
+
 ### Three operational lessons, no fix required
 
 **ArgoCD does not retry a failed auto-sync on the same revision.** After the
