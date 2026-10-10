@@ -86,13 +86,13 @@ spec:
             subset: v1
             port:
               number: 8000
-          weight: 90
+          weight: 50
         - destination:
             host: api.webapp-prod.svc.cluster.local
             subset: v2
             port:
               number: 8000
-          weight: 10
+          weight: 50
       retries:
         attempts: 2
         perTryTimeout: 2s
