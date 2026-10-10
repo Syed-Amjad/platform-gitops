@@ -1,11 +1,49 @@
 {{- if .Values.serviceMonitor.enabled }}
+# ---------------------------------------------------------------------------
+# A PodMonitor, not a ServiceMonitor — and the filename is kept only so the
+# diff stays readable.
+#
+# THE PROBLEM
+# istio/gateway.yaml sets PeerAuthentication STRICT for this namespace. The
+# sidecar therefore resets any plain-HTTP connection to the pod, and every
+# Prometheus target sat permanently DOWN with
+#   Get "http://10.42.0.51:8000/metrics": read: connection reset by peer
+# while /metrics answered 200 from inside the pod. Nothing was broken; the mesh
+# was enforcing exactly what it had been told to enforce.
+#
+# WHY NOT JUST RELAX mTLS
+# Dropping PeerAuthentication to PERMISSIVE, or exempting port 8000, would work
+# and would quietly discard the control. Port 8000 carries application traffic
+# as well as /metrics, so exempting it exempts everything.
+#
+# THE FIX
+# Istio's sidecar scrapes the application itself and republishes those metrics
+# merged with Envoy's own on port 15020, which Istio deliberately leaves
+# outside mTLS so that monitoring survives STRICT. The prometheus.io/*
+# annotations on the pod template tell it which endpoint to merge; Istio then
+# rewrites those same annotations to point at 15020, which is how you can tell
+# it took effect.
+#
+# WHY A PodMonitor
+# A ServiceMonitor discovers through the Service's Endpoints, so its
+# `targetPort` can only select a port the SERVICE exposes. This Service
+# deliberately exposes only 8000, so `targetPort: 15020` matched nothing and
+# the targets disappeared from Prometheus entirely rather than merely failing.
+# A PodMonitor discovers pods directly and rewrites __address__, so it can
+# reach a port that is listening but undeclared — which 15020 is. (15090 IS
+# declared, as http-envoy-prom, but serves Envoy metrics only, without the
+# application's.)
+#
+# Net result: STRICT mTLS kept, http_requests_total scraped, and
+# istio_requests_total arrives as a bonus.
+# ---------------------------------------------------------------------------
 apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+kind: PodMonitor
 metadata:
   name: {{ .Values.name }}-{{ .Values.version }}
   labels:
-    # kube-prometheus-stack only adopts ServiceMonitors carrying its release
-    # label — UNLESS serviceMonitorSelectorNilUsesHelmValues is false, which
+    # kube-prometheus-stack only adopts monitors carrying its release label —
+    # UNLESS podMonitorSelectorNilUsesHelmValues is false, which
     # observability/prometheus-values.yaml sets. Both are here so this works
     # either way.
     release: kube-prometheus-stack
@@ -14,31 +52,11 @@ spec:
   selector:
     matchLabels:
       app: {{ .Values.name }}
-  endpoints:
-    # ------------------------------------------------------------------------
-    # Scrapes the ISTIO SIDECAR's merged endpoint, not the app port.
-    #
-    # This used to be `port: http` (:8000) with path /metrics, which is the
-    # obvious thing and fails: STRICT mTLS in this namespace makes the sidecar
-    # reset any plain-HTTP connection, so every target sat permanently DOWN
-    # with "connection reset by peer" while the app served /metrics perfectly
-    # well from inside the pod.
-    #
-    # Port 15020 is the sidecar's telemetry port. Istio exempts it from mTLS
-    # precisely so monitoring survives, and with the prometheus.io/* pod
-    # annotations set (see deployment.yaml) what it serves is the application's
-    # own metrics merged with Envoy's.
-    #
-    # Net effect: STRICT mTLS is kept, http_requests_total is scraped, AND
-    # istio_requests_total comes along for free.
-    #
-    # targetPort rather than port: 15020 belongs to the pod, not the Service —
-    # the Service deliberately exposes only :8000.
-    # ------------------------------------------------------------------------
+  podMetricsEndpoints:
     - targetPort: 15020
       path: /stats/prometheus
       interval: {{ .Values.serviceMonitor.interval }}
-      # Without this, every scraped series is labelled with the POD ip and the
+      # Without these, every scraped series is labelled with the POD ip and the
       # `version` label never reaches Prometheus — so you cannot break the SLO
       # down per canary version, which is the entire point of scraping it.
       relabelings:
