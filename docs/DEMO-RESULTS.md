@@ -240,6 +240,35 @@ every automated signal said the platform was fine.
 That is the general shape of the Kiali/Grafana/Prometheus class of problem, and
 why "all pods Running" is a weak definition of working.
 
+### A fix that created a fault somewhere else — 2026-10-10
+
+| # | Defect | How it presented | Fix |
+|---|---|---|---|
+| 16 | **The VirtualService destinations stopped being unambiguous.** Publishing `tcp-metrics:15020` on the Service — the fix for defect #13 — made it multi-port, and a destination pointing at a multi-port Service no longer identifies a port. | Nothing failed. The canary kept routing, ArgoCD stayed `Synced/Healthy`, every pod stayed `Running`. The only trace was a validation counter in the Kiali UI and, on asking: `Error [IST0112] ... routes to a service that exposes multiple ports [8000 15020]. Specifying a port in the destination is required to disambiguate.` | `port.number: 8000` on all three destinations in `istio/api-traffic.yaml`. `istioctl analyze` then clean. |
+
+**This is the most uncomfortable entry in the file, and the most useful.** The
+fix for #13 was correct, was tested, and was verified end to end — metrics
+flowed, STRICT mTLS held. It also quietly introduced a latent routing fault two
+files away, in a resource nobody had edited.
+
+Nothing in the normal feedback loop caught it. ArgoCD reports sync and health,
+not semantic validity. Prometheus had no rule for it. The pods were fine. It was
+visible only to `istioctl analyze`, and in a Kiali badge reading "2 issues" that
+is easy to assume is part of the demo's deliberate errors — which, on the same
+screen at the same moment, the 24.59% error rate genuinely was.
+
+**Two lessons worth carrying.**
+
+Run `istioctl analyze` as part of the release loop, not as an afterthought. It
+is the only thing in this stack that checks mesh config for *meaning* rather
+than for schema.
+
+And be suspicious of a green dashboard immediately after a change in an adjacent
+layer. "Everything is still Healthy" was true and told us nothing: Istio
+*warned* rather than refusing, so the system kept working while being wrong.
+A loud failure would have been the kinder outcome — which is the same lesson as
+the `kustomize --enable-helm` entry, arriving from the opposite direction.
+
 ### Three operational lessons, no fix required
 
 **ArgoCD does not retry a failed auto-sync on the same revision.** After the
