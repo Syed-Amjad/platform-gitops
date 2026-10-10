@@ -13,8 +13,32 @@ spec:
   # create a ClusterRoleBinding and own the cluster.
   # ---------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------
+  # An ALLOWLIST, and still an allowlist after this fix — three named entries,
+  # not `'*'`.
+  #
+  # This originally listed only the GitOps repo, with the comment "this repo,
+  # and only this repo". That read well and was wrong: three of the
+  # Applications are multi-source and pull their charts from upstream Helm
+  # repositories. ArgoCD refused them with
+  #
+  #   application repo https://prometheus-community.github.io/helm-charts
+  #   is not permitted in project 'platform'
+  #
+  # and the damage was not limited to those three. Without kube-prometheus-stack
+  # there is no monitoring.coreos.com/v1, so `observability-config` and `webapp`
+  # then failed with "failed to discover server resources for group version" —
+  # one allowlist entry short, four Applications broken, and only one of the
+  # four error messages naming the real cause.
+  #
+  # The correct fix is to name the upstreams you actually depend on. Widening
+  # this to '*' would delete the control: the point of sourceRepos is that a
+  # commit cannot introduce a new source without someone changing THIS file.
+  # ---------------------------------------------------------------------------
   sourceRepos:
-    - https://github.com/Syed-Amjad/platform-gitops.git # this repo, and only this repo
+    - https://github.com/Syed-Amjad/platform-gitops.git # the declared state
+    - https://prometheus-community.github.io/helm-charts # kube-prometheus-stack
+    - https://grafana.github.io/helm-charts # loki, promtail
 
   destinations:
     - namespace: "webapp-*"
