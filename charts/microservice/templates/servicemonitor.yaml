@@ -15,8 +15,28 @@ spec:
     matchLabels:
       app: {{ .Values.name }}
   endpoints:
-    - port: http
-      path: {{ .Values.serviceMonitor.path }}
+    # ------------------------------------------------------------------------
+    # Scrapes the ISTIO SIDECAR's merged endpoint, not the app port.
+    #
+    # This used to be `port: http` (:8000) with path /metrics, which is the
+    # obvious thing and fails: STRICT mTLS in this namespace makes the sidecar
+    # reset any plain-HTTP connection, so every target sat permanently DOWN
+    # with "connection reset by peer" while the app served /metrics perfectly
+    # well from inside the pod.
+    #
+    # Port 15020 is the sidecar's telemetry port. Istio exempts it from mTLS
+    # precisely so monitoring survives, and with the prometheus.io/* pod
+    # annotations set (see deployment.yaml) what it serves is the application's
+    # own metrics merged with Envoy's.
+    #
+    # Net effect: STRICT mTLS is kept, http_requests_total is scraped, AND
+    # istio_requests_total comes along for free.
+    #
+    # targetPort rather than port: 15020 belongs to the pod, not the Service —
+    # the Service deliberately exposes only :8000.
+    # ------------------------------------------------------------------------
+    - targetPort: 15020
+      path: /stats/prometheus
       interval: {{ .Values.serviceMonitor.interval }}
       # Without this, every scraped series is labelled with the POD ip and the
       # `version` label never reaches Prometheus — so you cannot break the SLO

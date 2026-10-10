@@ -16,6 +16,29 @@ spec:
       version: {{ .Values.version }}
   template:
     metadata:
+      # ---------------------------------------------------------------------
+      # These three annotations are what make metrics survive STRICT mTLS.
+      #
+      # istio/gateway.yaml sets PeerAuthentication to STRICT for this
+      # namespace, so the sidecar rejects any plain-HTTP connection to the pod
+      # — including Prometheus scraping :8000/metrics, which fails with
+      # "read: connection reset by peer". The app is fine; the mesh is doing
+      # exactly what it was told.
+      #
+      # Istio's answer is metric merging: the sidecar scrapes the app itself
+      # and republishes the result, combined with its own Envoy metrics, on
+      # port 15020 — which Istio deliberately exempts from mTLS so that
+      # monitoring keeps working. But the sidecar only knows WHICH endpoint to
+      # merge if the pod carries these annotations before injection. Without
+      # them :15020 serves Envoy metrics only, and http_requests_total simply
+      # is not there.
+      #
+      # So: keep STRICT, and scrape the merged port. See servicemonitor.yaml.
+      # ---------------------------------------------------------------------
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.service.port | quote }}
+        prometheus.io/path: {{ .Values.serviceMonitor.path | quote }}
       labels:
         # BOTH labels matter. `app` is what the Service selects on, so it spans
         # versions. `version` is what the Istio DestinationRule subsets on, so
