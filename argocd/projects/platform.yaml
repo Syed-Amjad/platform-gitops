@@ -53,7 +53,36 @@ spec:
     # failure, because the error names the project, not the namespace.
     - namespace: argocd
       server: https://kubernetes.default.svc
+    # kube-prometheus-stack puts kube-state-metrics and the node-exporter
+    # DaemonSet here. Not optional, and not obvious from the chart's name.
+    - namespace: kube-system
+      server: https://kubernetes.default.svc
 
+  # ---------------------------------------------------------------------------
+  # An honest note, because this list got longer than its author intended.
+  #
+  # The original project allowed exactly two cluster-scoped kinds, and denied
+  # ClusterRole/ClusterRoleBinding outright, on the reasoning that privilege
+  # escalation through a committed manifest is THE GitOps-specific attack.
+  # That reasoning is right. It is also incompatible with installing
+  # kube-prometheus-stack, which ships its own CRDs, its operator's RBAC, and
+  # admission webhooks — and legitimately needs all of them.
+  #
+  # So this is a real trade-off, not an oversight being papered over:
+  # a platform that installs a monitoring operator IS a platform that can
+  # create cluster RBAC. Pretending otherwise would mean either not deploying
+  # the stack, or deploying it outside GitOps where nothing reviews it.
+  #
+  # What still constrains this project after the widening:
+  #   * sourceRepos  — three named repositories, not '*'
+  #   * destinations — five named namespaces, not '*'
+  #   * the list below is an allowlist of KINDS, so a manifest introducing,
+  #     say, a ValidatingAdmissionPolicy is still refused
+  #
+  # What no longer constrains it: it can create ClusterRoles. Worth saying out
+  # loud in the write-up rather than leaving the original comment in place and
+  # implying a control that is not there.
+  # ---------------------------------------------------------------------------
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
@@ -62,14 +91,27 @@ spec:
     # and cluster-resource permission are two separate gates.
     - group: "external-secrets.io"
       kind: ClusterSecretStore
-
-  # Explicitly denied even inside permitted namespaces. Privilege escalation via
-  # a committed manifest is the GitOps-specific attack, and this is the control.
-  namespaceResourceBlacklist:
+    # Everything below is kube-prometheus-stack. Without these, wave 1 cannot
+    # install; without wave 1 there is no monitoring.coreos.com/v1; and waves 2
+    # and 3 then fail with "failed to discover server resources", which names
+    # neither this file nor the real problem.
+    - group: "apiextensions.k8s.io"
+      kind: CustomResourceDefinition
     - group: "rbac.authorization.k8s.io"
       kind: ClusterRole
     - group: "rbac.authorization.k8s.io"
       kind: ClusterRoleBinding
+    - group: "admissionregistration.k8s.io"
+      kind: MutatingWebhookConfiguration
+    - group: "admissionregistration.k8s.io"
+      kind: ValidatingWebhookConfiguration
+
+  # NOTE: ClusterRole and ClusterRoleBinding used to be listed here. That was
+  # doubly wrong — they are cluster-scoped, so `namespaceResourceBlacklist` was
+  # never the field that governed them (clusterResourceWhitelist above is), and
+  # the chart needs them regardless. Left empty rather than deleted, as the
+  # place to put a genuinely namespaced kind you want to forbid.
+  namespaceResourceBlacklist: []
 
   roles:
     - name: read-only
