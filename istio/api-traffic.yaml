@@ -51,17 +51,47 @@ spec:
         - destination:
             host: api.webapp-prod.svc.cluster.local
             subset: v2
+            # See the note on the weighted split below for why the port is
+            # named explicitly on every destination in this file.
+            port:
+              number: 8000
 
     # Everyone else: the weighted split. 90/10 → 50/50 → 0/100 by git commit.
     - name: weighted-split
       route:
+        # ---------------------------------------------------------------------
+        # `port.number` IS REQUIRED HERE, and it became required as a side
+        # effect of a fix somewhere else entirely.
+        #
+        # base/service-api.yaml publishes a second port, tcp-metrics (15020),
+        # so that Prometheus can scrape through STRICT mTLS. That made the
+        # Service multi-port, and a VirtualService destination pointing at a
+        # multi-port Service is ambiguous:
+        #
+        #   Error [IST0112] (VirtualService webapp-prod/api) This VirtualService
+        #   routes to a service that exposes multiple ports [8000 15020].
+        #   Specifying a port in the destination is required to disambiguate.
+        #
+        # Istio reports this at `istioctl analyze` and in Kiali's validations;
+        # it does not refuse the config. So the canary keeps working and the
+        # only trace is a warning counter in a UI nobody is looking at during
+        # a release — which is the sort of thing that is fine until the day it
+        # resolves to the wrong port.
+        #
+        # Worth noting that `web-ingress` in gateway.yaml already specified its
+        # port, which is why only this file was flagged.
+        # ---------------------------------------------------------------------
         - destination:
             host: api.webapp-prod.svc.cluster.local
             subset: v1
+            port:
+              number: 8000
           weight: 90
         - destination:
             host: api.webapp-prod.svc.cluster.local
             subset: v2
+            port:
+              number: 8000
           weight: 10
       retries:
         attempts: 2
