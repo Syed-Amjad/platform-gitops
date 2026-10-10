@@ -183,6 +183,48 @@ server resources for group version monitoring.coreos.com/v1` — which points at
 CRDs, two layers downstream of an RBAC allowlist. Debugging from the last error
 would have led into kube-prometheus-stack internals and found nothing.
 
+### The hardest defect: STRICT mTLS vs Prometheus — 2026-10-10
+
+| # | Defect | How it presented | Fix |
+|---|---|---|---|
+| 13 | **`PeerAuthentication: STRICT` makes the sidecar reject Prometheus's plain-HTTP scrape.** | Every `api` and `web` target `DOWN` with `Get "http://10.42.0.51:8000/metrics": read: connection reset by peer`, while `/metrics` returned 200 from inside the pod. Nothing was broken — the mesh was enforcing exactly what it had been told to. | Scrape Istio's merged telemetry port 15020 instead, which Istio deliberately leaves outside mTLS. Requires `prometheus.io/*` pod annotations so the sidecar knows which endpoint to merge, **and** publishing 15020 as a Service port so a ServiceMonitor can attach. |
+| 14 | **prometheus-operator does not regenerate its config when monitors change.** Same class as #12. | Monitors created and visible via `kubectl`, operator log silent, generated config still containing the *previous* set of jobs. No error anywhere. | `rollout restart deploy/kube-prometheus-stack-operator`. Jobs appeared within 60s. |
+
+**This took four attempts, and the three failures are more instructive than the fix.**
+
+1. **`ServiceMonitor` with `port: http` (:8000)** — targets appeared and sat `DOWN`
+   with `connection reset by peer`. Correct diagnosis, wrong layer.
+2. **`ServiceMonitor` with `targetPort: 15020`** — targets **vanished entirely**.
+   A ServiceMonitor discovers through the Service's Endpoints, so `targetPort`
+   can only select a port the *Service* exposes; the Service published only
+   8000, so nothing matched.
+3. **`PodMonitor` with `targetPort: 15020`** — also zero targets, with the clue
+   in the operator log: `'targetPort' is deprecated, use 'port' instead`. Both
+   forms compile down to a relabel that **keeps only declared container ports**,
+   and 15020 listens without being declared. (15090 *is* declared, as
+   `http-envoy-prom`, but serves Envoy metrics only — no `http_requests_total`.)
+4. **Publish 15020 as a Service port, then `ServiceMonitor` with
+   `port: tcp-metrics`** — works. A Service will forward to any pod port,
+   declared or not, which is the one property none of the monitor CRDs have.
+
+**Attempt 2 is the one to remember.** It made the symptom *worse* while looking
+like progress: a failing target tells you something is wrong, whereas a missing
+target looks like the monitor was never created. Going from "8 targets down" to
+"no targets at all" felt like a regression and was actually one step closer.
+
+**On the choice not taken.** The quick fix is `PeerAuthentication: PERMISSIVE`.
+It works, takes one line, and silently discards the control — port 8000 carries
+application traffic as well as `/metrics`, so exempting the port exempts
+everything. The merged-port route keeps STRICT enforcement and brings
+`istio_requests_total` along for free.
+
+**The genuinely correct production answer is a third thing neither of these
+does: serve `/metrics` on its own port.** Then the app port stays STRICT and
+only the metrics port is exempted, with no dependency on Istio's merge
+behaviour. That is an application change — a second `uvicorn` listener — and it
+is the right follow-up. Worth stating rather than implying the chosen fix is
+the ideal one.
+
 ### Three operational lessons, no fix required
 
 **ArgoCD does not retry a failed auto-sync on the same revision.** After the
