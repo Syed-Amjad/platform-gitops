@@ -153,6 +153,69 @@ The repo already knew about this failure mode: `01-observability.yaml` sets
 `ServerSideApply=true` on the kube-prometheus-stack Application for exactly the
 same reason. It simply had not been applied to ArgoCD's own installation.
 
+### Found by applying the root app — 2026-10-10
+
+The app-of-apps was applied and **four of eight Applications failed.** The chain
+took three separate fixes, and the ordering of the error messages is the lesson.
+
+| # | Defect | How it presented | Fix |
+|---|---|---|---|
+| 10 | **`AppProject.sourceRepos` listed only the GitOps repo.** Three Applications are multi-source and pull charts from `prometheus-community` and `grafana`. | `InvalidSpecError: application repo https://prometheus-community.github.io/helm-charts is not permitted in project 'platform'`. Those three sat in `Unknown/Unknown`. | Added the two upstream chart repos. Still an allowlist — three named entries, not `'*'`. |
+| 11 | **`AppProject` also blocked the cluster-scoped kinds the chart installs.** `kube-system` was not a permitted destination, and `clusterResourceWhitelist` allowed only `Namespace` and `ClusterSecretStore`. | After fixing #10: `namespace kube-system is not permitted`, plus `CustomResourceDefinition`, `ClusterRole`, `ClusterRoleBinding` and both webhook kinds "not permitted in project platform". | Added `kube-system` and the five kinds. See the honest note in `platform.yaml` — this is a real trade-off, not an oversight. |
+| 12 | **prometheus-operator ignores CRDs installed after it boots.** It decides which controllers to run at startup. | CRDs present, `Prometheus` CR present, ArgoCD stuck on `waiting for healthy state of monitoring.coreos.com/Prometheus`. No StatefulSet, no pod, no error anywhere. Operator log from boot: `resource "prometheuses" not installed in the cluster`. | `kubectl -n observability rollout restart deploy/kube-prometheus-stack-operator`. StatefulSets appeared within 20s. |
+
+**Defect 11 is the one worth reading twice.** The original `AppProject` denied
+`ClusterRole` and `ClusterRoleBinding` with the comment *"Privilege escalation
+via a committed manifest is the GitOps-specific attack, and this is the
+control."* That reasoning is correct — and it is incompatible with installing a
+monitoring operator, which legitimately needs cluster RBAC, its own CRDs and
+admission webhooks.
+
+There is no clever resolution. A platform that installs an operator through
+GitOps **is** a platform whose repo can create cluster RBAC. The choices are to
+widen the project and say so, or to install the stack outside GitOps where
+nothing reviews it at all. The first is better and the comment in
+`platform.yaml` now says which control was given up.
+
+**On error ordering.** Only one of the four failing Applications named the real
+cause. `observability-config` and `webapp` both reported `failed to discover
+server resources for group version monitoring.coreos.com/v1` — which points at
+CRDs, two layers downstream of an RBAC allowlist. Debugging from the last error
+would have led into kube-prometheus-stack internals and found nothing.
+
+### Three operational lessons, no fix required
+
+**ArgoCD does not retry a failed auto-sync on the same revision.** After the
+first failure the controller logged, every two minutes:
+
+```
+Skipping auto-sync: failed previous sync attempt to [65.1.1 cf80f8e...]
+and will not retry for [65.1.1 cf80f8e...]
+```
+
+It sat there for ten minutes looking like slowness. It was not slow; it had
+given up. Either push a new commit or trigger a sync explicitly.
+
+**A manually-triggered sync does not inherit `spec.syncPolicy.syncOptions`.**
+Triggering a sync by patching `.operation` on the Application ran *without*
+`ServerSideApply`, and six kube-prometheus-stack CRDs failed with
+`metadata.annotations: Too long: may not be more than 262144 bytes` — the same
+limit as defect #9. The Application spec had been right all along. Carrying
+`syncOptions` in the operation installed all ten CRDs in twenty seconds. **This
+one was operator error, not a repo defect**, and it is recorded because
+mistaking it for a defect would have meant "fixing" a file that was correct.
+
+**Istio 1.31 on Kubernetes 1.36 injects native sidecars.** `istio-proxy` is an
+init container with `restartPolicy: Always`, not a regular container, so the
+check in `RUNBOOK-canary.md`:
+
+```bash
+kubectl get pods -o jsonpath='{.spec.containers[*].name}'
+```
+
+prints only `api` and looks like injection failed. Pods read `2/2 READY` while
+listing one container. The correct check now also reads `.spec.initContainers`.
+
 ### Found by running terraform — the partial apply
 
 **This is the most instructive failure in the infrastructure layer, and not
