@@ -205,18 +205,3 @@ same decision as releasing. Full procedure in
 
 ---
 
-## Lab-only, and stated as such
-
-- **Vault runs in dev mode** — unsealed, in-memory, root token, and it loses
-  everything when the pod restarts. Correct for demonstrating the External
-  Secrets pattern; not a production Vault deployment.
-- **Rotation updates the Secret, not the running process.** `envFrom` is read at
-  container start, so pods keep the old value until restarted. Automating that
-  needs a file mount with a watcher, or Reloader.
-- **Alertmanager posts to a webhook**, not a real destination, unless you
-  configure SMTP.
-- **Zabbix is included for CV completeness** with an honest note that a
-  greenfield Kubernetes estate would not add it — see `zabbix/README.md`.
-
-Leave these in the write-up. On the previous project, statements exactly like
-these did more for its credibility than any of the green output did.
