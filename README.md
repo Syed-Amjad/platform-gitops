@@ -8,6 +8,58 @@ Application source lives in the companion repo, `k8s-platform-app`.
 
 ---
 
+## What it looks like running
+
+Built, measured and destroyed on 2026-10-10. **Seventeen defects were found and
+sixteen fixed** along the way — each one recorded with its symptom, its
+misleading error message and the reasoning, in
+[`docs/DEMO-RESULTS.md`](docs/DEMO-RESULTS.md). That file, not this one, is the
+point of the project.
+
+### Metrics and logs, correlated, from a platform assembled entirely from git
+
+![Grafana showing request rate by version beside Loki logs](docs/screenshots/13-grafana-metrics-logs-correlated.png)
+
+`rate(http_requests_total)` broken down by canary version on the left, Loki
+logs for the same namespace and time window on the right. The `version` label
+is what makes the canary countable; a blended number would hide a bad canary
+behind a good stable.
+
+### The mesh actually routing
+
+![Kiali traffic graph](docs/screenshots/16-kiali-traffic-graph.png)
+
+`istio-ingressgateway → web → api → {v1, v2}`. Two hops, four versions, five
+edges, 100% success.
+
+### Self-heal, measured
+
+![ArgoCD reverting a manual scale in 4 seconds](docs/screenshots/19-demo-selfheal.png)
+
+A deployment scaled to 9 by hand is back to the git-declared 3 **four seconds
+later**. Nobody was paged, nothing was approved.
+
+### The canary split, measured rather than asserted
+
+| Weights in git | Requests | v1 measured | v2 measured | Deviation |
+|---|---|---|---|---|
+| 90 / 10 | 200 | 171 (85.5%) | 29 (14.5%) | −4.5 pp |
+| 50 / 50 | 200 | 102 (51.0%) | 98 (49.0%) | +1.0 pp |
+
+Asserting that 90/10 was configured proves nothing. Counting 171 responses
+against 29 proves the mesh is routing. The deviation is correct behaviour —
+Istio's distribution is probabilistic per request, not a strict round robin —
+and it is reported rather than rounded away.
+
+**One demonstration failed and is published as a failure.** Header-based
+routing (`x-canary: true`) returned 46/4 where it should have returned 0/50,
+because `web` does not forward the header on its call to `api`. The mesh
+config was correct; the application contract was missing. Defect 17.
+
+**[→ All 23 screenshots, with captions](docs/screenshots/)**
+
+---
+
 ## Before the first sync — replace these
 
 Nothing works until `REPLACE_ME` is gone. Find every occurrence:
